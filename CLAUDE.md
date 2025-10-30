@@ -13,7 +13,7 @@ InvoiceThai is a Thai-language invoice management SaaS built with Next.js 16 (Ap
 npm run dev
 
 # Build for production
-npm build
+npm run build
 
 # Start production server
 npm start
@@ -38,15 +38,9 @@ This creates:
 
 ## Architecture
 
-### Authentication System (Currently Disabled)
+### Authentication System
 
-Authentication is **intentionally disabled** for development. The system uses mock users to bypass auth checks:
-
-- **Middleware**: `lib/supabase/middleware.ts` - Auth code is commented out with "AUTHENTICATION DISABLED FOR TESTING"
-- **Dashboard Layout**: `app/(dashboard)/layout.tsx` - Uses mock user object instead of real auth check
-- **To Re-enable**: Uncomment the auth code in both files
-
-When enabled, the system uses:
+The system uses:
 - Supabase Auth with SSR (Server-Side Rendering)
 - Cookie-based session management
 - Protected routes via middleware and layout checks
@@ -150,9 +144,10 @@ Key relationships:
 - When schema changes, regenerate types using Supabase CLI: `npx supabase gen types typescript --project-id vtcpvvzlxpqwmnjvvldv`
 
 ### Configuration
-- `.env.local` - Contains Supabase URL and anon key
+- `.env.local` - Contains Supabase URL and anon key (create this file with `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`)
 - `components.json` - shadcn/ui configuration
-- `tailwind.config.js` - Tailwind CSS v4 configuration
+- `app/globals.css` - Tailwind CSS v4 configuration (uses CSS-based `@theme` instead of JS config file)
+- `postcss.config.mjs` - PostCSS configuration for Tailwind v4
 
 ## Development Workflow
 
