@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -8,32 +10,38 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/client";
+import { loginSchema, type LoginFormData } from "@/lib/validations/schemas";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const form = useForm<LoginFormData>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+  });
+
+  const handleLogin = async (data: LoginFormData) => {
     setLoading(true);
     setError(null);
 
     try {
       const supabase = createClient();
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: data.email,
+        password: data.password,
       });
 
-      if (error) {
-        setError(error.message);
+      if (authError) {
+        setError(authError.message);
         return;
       }
 
-      if (data.user) {
+      if (authData.user) {
         router.push("/dashboard");
         router.refresh();
       }
@@ -52,7 +60,7 @@ export default function LoginPage() {
           กรอกอีเมลและรหัสผ่านเพื่อเข้าสู่ระบบ
         </CardDescription>
       </CardHeader>
-      <form onSubmit={handleLogin}>
+      <form onSubmit={form.handleSubmit(handleLogin)}>
         <CardContent className="space-y-4">
           {error && (
             <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-md text-sm">
@@ -66,11 +74,14 @@ export default function LoginPage() {
               id="email"
               type="email"
               placeholder="example@email.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
+              {...form.register("email")}
               disabled={loading}
             />
+            {form.formState.errors.email && (
+              <p className="text-sm text-destructive">
+                {form.formState.errors.email.message}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -79,11 +90,14 @@ export default function LoginPage() {
               id="password"
               type="password"
               placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
+              {...form.register("password")}
               disabled={loading}
             />
+            {form.formState.errors.password && (
+              <p className="text-sm text-destructive">
+                {form.formState.errors.password.message}
+              </p>
+            )}
           </div>
         </CardContent>
 

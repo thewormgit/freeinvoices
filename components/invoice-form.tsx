@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useForm, useFieldArray } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -23,6 +25,7 @@ import {
 import { ArrowLeft, Plus, Trash2, FileText, Save } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import dayjs from "dayjs";
+import { invoiceSchema, type InvoiceFormData } from "@/lib/validations/schemas";
 
 type Customer = {
   id: string;
@@ -31,14 +34,6 @@ type Customer = {
   tax_id: string | null;
   phone: string | null;
   address: string | null;
-};
-
-type InvoiceItem = {
-  id: string;
-  description: string;
-  quantity: number;
-  unit_price: number;
-  amount: number;
 };
 
 export default function InvoiceForm({
@@ -50,7 +45,6 @@ export default function InvoiceForm({
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Generate next invoice number
   const generateInvoiceNumber = () => {
@@ -71,29 +65,34 @@ export default function InvoiceForm({
     return `INV-${today}-0001`;
   };
 
-  const [formData, setFormData] = useState({
-    customer_id: "",
-    invoice_number: generateInvoiceNumber(),
-    date: dayjs().format("YYYY-MM-DD"),
-    due_date: dayjs().add(30, "day").format("YYYY-MM-DD"),
-    notes: "",
-    status: "draft" as "draft" | "sent" | "paid",
+  const form = useForm<InvoiceFormData>({
+    resolver: zodResolver(invoiceSchema),
+    defaultValues: {
+      customer_id: "",
+      invoice_number: generateInvoiceNumber(),
+      date: dayjs().format("YYYY-MM-DD"),
+      due_date: dayjs().add(30, "day").format("YYYY-MM-DD"),
+      notes: "",
+      status: "draft",
+      items: [
+        {
+          id: crypto.randomUUID(),
+          description: "",
+          quantity: 1,
+          unit_price: 0,
+          amount: 0,
+        },
+      ],
+    },
   });
 
-  const [items, setItems] = useState<InvoiceItem[]>([
-    {
-      id: crypto.randomUUID(),
-      description: "",
-      quantity: 1,
-      unit_price: 0,
-      amount: 0,
-    },
-  ]);
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "items",
+  });
 
-  // Calculate item amount
-  const calculateItemAmount = (quantity: number, unit_price: number) => {
-    return quantity * unit_price;
-  };
+  // Watch items to recalculate amounts
+  const items = form.watch("items");
 
   // Calculate totals
   const calculateTotals = () => {
@@ -108,83 +107,44 @@ export default function InvoiceForm({
 
   // Add new item
   const handleAddItem = () => {
-    setItems([
-      ...items,
-      {
-        id: crypto.randomUUID(),
-        description: "",
-        quantity: 1,
-        unit_price: 0,
-        amount: 0,
-      },
-    ]);
+    append({
+      id: crypto.randomUUID(),
+      description: "",
+      quantity: 1,
+      unit_price: 0,
+      amount: 0,
+    });
   };
 
   // Remove item
-  const handleRemoveItem = (id: string) => {
-    if (items.length > 1) {
-      setItems(items.filter((item) => item.id !== id));
+  const handleRemoveItem = (index: number) => {
+    if (fields.length > 1) {
+      remove(index);
     }
   };
 
-  // Update item
-  const handleItemChange = (
-    id: string,
-    field: keyof InvoiceItem,
-    value: string | number,
-  ) => {
-    setItems(
-      items.map((item) => {
-        if (item.id === id) {
-          const updatedItem = { ...item, [field]: value };
-
-          // Recalculate amount if quantity or unit_price changed
-          if (field === "quantity" || field === "unit_price") {
-            updatedItem.amount = calculateItemAmount(
-              updatedItem.quantity,
-              updatedItem.unit_price,
-            );
-          }
-
-          return updatedItem;
-        }
-        return item;
-      }),
-    );
+  // Update amount when quantity or unit_price changes
+  const handleItemChange = (index: number) => {
+    const item = form.getValues(`items.${index}`);
+    const amount = item.quantity * item.unit_price;
+    form.setValue(`items.${index}.amount`, amount);
   };
 
   // Submit form
   const handleSubmit = async (
-    e: React.FormEvent,
+    data: InvoiceFormData,
     saveStatus: "draft" | "sent",
   ) => {
-    e.preventDefault();
     setLoading(true);
-    setError(null);
 
     try {
-      // Validate
-      if (!formData.customer_id) {
-        setError("กรุณาเลือกลูกค้า");
-        setLoading(false);
-        return;
-      }
-
-      if (items.some((item) => !item.description.trim())) {
-        setError("กรุณากรอกรายละเอียดสินค้า/บริการทุกรายการ");
-        setLoading(false);
-        return;
-      }
-
       const supabase = createClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
       if (!user) {
-        setError("กรุณาเข้าสู่ระบบ");
-        setLoading(false);
-        return;
+        throw new Error("กรุณาเข้าสู่ระบบ");
       }
 
       // Insert invoice
@@ -192,14 +152,14 @@ export default function InvoiceForm({
         .from("invoices")
         .insert({
           user_id: user.id,
-          customer_id: formData.customer_id,
-          invoice_number: formData.invoice_number,
-          date: formData.date,
-          due_date: formData.due_date || null,
+          customer_id: data.customer_id,
+          invoice_number: data.invoice_number,
+          date: data.date,
+          due_date: data.due_date || null,
           subtotal: subtotal,
           vat: vat,
           total: total,
-          notes: formData.notes || null,
+          notes: data.notes || null,
           status: saveStatus,
         })
         .select()
@@ -208,7 +168,7 @@ export default function InvoiceForm({
       if (invoiceError) throw invoiceError;
 
       // Insert invoice items
-      const itemsToInsert = items.map((item) => ({
+      const itemsToInsert = data.items.map((item) => ({
         invoice_id: invoice.id,
         description: item.description,
         quantity: item.quantity,
@@ -227,13 +187,13 @@ export default function InvoiceForm({
       router.refresh();
     } catch (err: any) {
       console.error("Error creating invoice:", err);
-      setError(err.message || "เกิดข้อผิดพลาดในการสร้างใบเสร็จ");
+      alert(err.message || "เกิดข้อผิดพลาดในการสร้างใบเสร็จ");
     } finally {
       setLoading(false);
     }
   };
 
-  const selectedCustomer = customers.find((c) => c.id === formData.customer_id);
+  const selectedCustomer = customers.find((c) => c.id === form.watch("customer_id"));
 
   return (
     <div className="space-y-6">
@@ -253,13 +213,13 @@ export default function InvoiceForm({
         </div>
       </div>
 
-      {error && (
+      {form.formState.errors.root && (
         <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-md text-sm">
-          {error}
+          {form.formState.errors.root.message}
         </div>
       )}
 
-      <form className="space-y-6">
+      <div className="space-y-6">
         {/* Invoice Details Card */}
         <Card>
           <CardHeader>
@@ -275,9 +235,9 @@ export default function InvoiceForm({
               <div className="space-y-2">
                 <Label htmlFor="customer_id">ลูกค้า *</Label>
                 <Select
-                  value={formData.customer_id}
+                  value={form.watch("customer_id")}
                   onValueChange={(value) =>
-                    setFormData({ ...formData, customer_id: value })
+                    form.setValue("customer_id", value)
                   }
                 >
                   <SelectTrigger>
@@ -297,6 +257,11 @@ export default function InvoiceForm({
                     )}
                   </SelectContent>
                 </Select>
+                {form.formState.errors.customer_id && (
+                  <p className="text-sm text-destructive">
+                    {form.formState.errors.customer_id.message}
+                  </p>
+                )}
                 {customers.length === 0 && (
                   <Link href="/dashboard/customers">
                     <Button
@@ -316,12 +281,14 @@ export default function InvoiceForm({
                 <Label htmlFor="invoice_number">เลขที่ใบแจ้งหนี้</Label>
                 <Input
                   id="invoice_number"
-                  value={formData.invoice_number}
-                  onChange={(e) =>
-                    setFormData({ ...formData, invoice_number: e.target.value })
-                  }
-                  required
+                  {...form.register("invoice_number")}
+                  disabled={loading}
                 />
+                {form.formState.errors.invoice_number && (
+                  <p className="text-sm text-destructive">
+                    {form.formState.errors.invoice_number.message}
+                  </p>
+                )}
               </div>
 
               {/* Date */}
@@ -330,12 +297,14 @@ export default function InvoiceForm({
                 <Input
                   id="date"
                   type="date"
-                  value={formData.date}
-                  onChange={(e) =>
-                    setFormData({ ...formData, date: e.target.value })
-                  }
-                  required
+                  {...form.register("date")}
+                  disabled={loading}
                 />
+                {form.formState.errors.date && (
+                  <p className="text-sm text-destructive">
+                    {form.formState.errors.date.message}
+                  </p>
+                )}
               </div>
 
               {/* Due Date */}
@@ -344,11 +313,14 @@ export default function InvoiceForm({
                 <Input
                   id="due_date"
                   type="date"
-                  value={formData.due_date}
-                  onChange={(e) =>
-                    setFormData({ ...formData, due_date: e.target.value })
-                  }
+                  {...form.register("due_date")}
+                  disabled={loading}
                 />
+                {form.formState.errors.due_date && (
+                  <p className="text-sm text-destructive">
+                    {form.formState.errors.due_date.message}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -395,76 +367,80 @@ export default function InvoiceForm({
           <CardContent className="space-y-4">
             {/* Items Table */}
             <div className="space-y-3">
-              {items.map((item, index) => (
+              {fields.map((field, index) => (
                 <div
-                  key={item.id}
+                  key={field.id}
                   className="grid grid-cols-12 gap-2 items-start p-3 border rounded-md"
                 >
                   {/* Description */}
                   <div className="col-span-12 md:col-span-5">
-                    <Label htmlFor={`desc-${item.id}`} className="text-xs">
+                    <Label htmlFor={`desc-${field.id}`} className="text-xs">
                       รายละเอียด *
                     </Label>
                     <Input
-                      id={`desc-${item.id}`}
-                      value={item.description}
-                      onChange={(e) =>
-                        handleItemChange(item.id, "description", e.target.value)
-                      }
+                      id={`desc-${field.id}`}
+                      {...form.register(`items.${index}.description`)}
                       placeholder="เช่น บริการออกแบบเว็บไซต์"
-                      required
+                      disabled={loading}
                     />
+                    {form.formState.errors.items?.[index]?.description && (
+                      <p className="text-xs text-destructive mt-1">
+                        {form.formState.errors.items[index]?.description?.message}
+                      </p>
+                    )}
                   </div>
 
                   {/* Quantity */}
                   <div className="col-span-4 md:col-span-2">
-                    <Label htmlFor={`qty-${item.id}`} className="text-xs">
+                    <Label htmlFor={`qty-${field.id}`} className="text-xs">
                       จำนวน
                     </Label>
                     <Input
-                      id={`qty-${item.id}`}
+                      id={`qty-${field.id}`}
                       type="number"
                       min="0"
                       step="0.01"
-                      value={item.quantity}
-                      onChange={(e) =>
-                        handleItemChange(
-                          item.id,
-                          "quantity",
-                          parseFloat(e.target.value) || 0,
-                        )
-                      }
-                      required
+                      {...form.register(`items.${index}.quantity`, {
+                        valueAsNumber: true,
+                        onChange: () => handleItemChange(index),
+                      })}
+                      disabled={loading}
                     />
+                    {form.formState.errors.items?.[index]?.quantity && (
+                      <p className="text-xs text-destructive mt-1">
+                        {form.formState.errors.items[index]?.quantity?.message}
+                      </p>
+                    )}
                   </div>
 
                   {/* Unit Price */}
                   <div className="col-span-4 md:col-span-2">
-                    <Label htmlFor={`price-${item.id}`} className="text-xs">
+                    <Label htmlFor={`price-${field.id}`} className="text-xs">
                       ราคา/หน่วย
                     </Label>
                     <Input
-                      id={`price-${item.id}`}
+                      id={`price-${field.id}`}
                       type="number"
                       min="0"
                       step="0.01"
-                      value={item.unit_price}
-                      onChange={(e) =>
-                        handleItemChange(
-                          item.id,
-                          "unit_price",
-                          parseFloat(e.target.value) || 0,
-                        )
-                      }
-                      required
+                      {...form.register(`items.${index}.unit_price`, {
+                        valueAsNumber: true,
+                        onChange: () => handleItemChange(index),
+                      })}
+                      disabled={loading}
                     />
+                    {form.formState.errors.items?.[index]?.unit_price && (
+                      <p className="text-xs text-destructive mt-1">
+                        {form.formState.errors.items[index]?.unit_price?.message}
+                      </p>
+                    )}
                   </div>
 
                   {/* Amount */}
                   <div className="col-span-3 md:col-span-2">
                     <Label className="text-xs">ยอดรวม</Label>
                     <div className="h-10 flex items-center px-3 bg-muted rounded-md text-sm font-medium">
-                      {item.amount.toLocaleString("th-TH", {
+                      {(form.watch(`items.${index}.amount`) || 0).toLocaleString("th-TH", {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}
@@ -477,8 +453,8 @@ export default function InvoiceForm({
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleRemoveItem(item.id)}
-                      disabled={items.length === 1}
+                      onClick={() => handleRemoveItem(index)}
+                      disabled={fields.length === 1}
                       className="h-10"
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
@@ -487,6 +463,11 @@ export default function InvoiceForm({
                 </div>
               ))}
             </div>
+            {form.formState.errors.items?.message && (
+              <p className="text-sm text-destructive">
+                {form.formState.errors.items.message}
+              </p>
+            )}
 
             {/* Add Item Button */}
             <Button
@@ -548,12 +529,15 @@ export default function InvoiceForm({
           <CardContent>
             <textarea
               className="w-full min-h-[100px] p-3 border rounded-md resize-y"
-              value={formData.notes}
-              onChange={(e) =>
-                setFormData({ ...formData, notes: e.target.value })
-              }
+              {...form.register("notes")}
               placeholder="เช่น เงื่อนไขการชำระเงิน หรือข้อมูลเพิ่มเติมอื่นๆ"
+              disabled={loading}
             />
+            {form.formState.errors.notes && (
+              <p className="text-sm text-destructive mt-2">
+                {form.formState.errors.notes.message}
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -567,7 +551,7 @@ export default function InvoiceForm({
           <Button
             type="button"
             variant="outline"
-            onClick={(e) => handleSubmit(e, "draft")}
+            onClick={form.handleSubmit((data) => handleSubmit(data, "draft"))}
             disabled={loading}
           >
             <Save className="h-4 w-4 mr-2" />
@@ -575,14 +559,14 @@ export default function InvoiceForm({
           </Button>
           <Button
             type="button"
-            onClick={(e) => handleSubmit(e, "sent")}
+            onClick={form.handleSubmit((data) => handleSubmit(data, "sent"))}
             disabled={loading}
           >
             <FileText className="h-4 w-4 mr-2" />
             {loading ? "กำลังบันทึก..." : "บันทึกและส่ง"}
           </Button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

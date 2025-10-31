@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -8,54 +10,48 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/client";
+import { registerSchema, type RegisterFormData } from "@/lib/validations/schemas";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState("");
 
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const form = useForm<RegisterFormData>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+      confirmPassword: "",
+    },
+  });
+
+  const handleRegister = async (data: RegisterFormData) => {
     setLoading(true);
     setError(null);
 
-    // Validate passwords match
-    if (password !== confirmPassword) {
-      setError("รหัสผ่านไม่ตรงกัน");
-      setLoading(false);
-      return;
-    }
-
-    // Validate password length
-    if (password.length < 6) {
-      setError("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร");
-      setLoading(false);
-      return;
-    }
-
     try {
       const supabase = createClient();
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
         options: {
           emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       });
 
-      if (error) {
-        setError(error.message);
+      if (authError) {
+        setError(authError.message);
         return;
       }
 
-      if (data.user) {
+      if (authData.user) {
         setSuccess(true);
+        setRegisteredEmail(data.email);
         // If email confirmation is disabled, redirect to dashboard
-        if (data.session) {
+        if (authData.session) {
           router.push("/dashboard");
           router.refresh();
         }
@@ -78,7 +74,7 @@ export default function RegisterPage() {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            เราได้ส่งลิงก์ยืนยันไปที่ {email} แล้ว
+            เราได้ส่งลิงก์ยืนยันไปที่ {registeredEmail} แล้ว
             กรุณาคลิกลิงก์ในอีเมลเพื่อเปิดใช้งานบัญชี
           </p>
         </CardContent>
@@ -99,7 +95,7 @@ export default function RegisterPage() {
           สร้างบัญชีใหม่เพื่อเริ่มใช้งาน InvoiceThai
         </CardDescription>
       </CardHeader>
-      <form onSubmit={handleRegister}>
+      <form onSubmit={form.handleSubmit(handleRegister)}>
         <CardContent className="space-y-4">
           {error && (
             <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-md text-sm">
@@ -113,11 +109,14 @@ export default function RegisterPage() {
               id="email"
               type="email"
               placeholder="example@email.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
+              {...form.register("email")}
               disabled={loading}
             />
+            {form.formState.errors.email && (
+              <p className="text-sm text-destructive">
+                {form.formState.errors.email.message}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -126,12 +125,14 @@ export default function RegisterPage() {
               id="password"
               type="password"
               placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
+              {...form.register("password")}
               disabled={loading}
-              minLength={6}
             />
+            {form.formState.errors.password && (
+              <p className="text-sm text-destructive">
+                {form.formState.errors.password.message}
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">
               อย่างน้อย 6 ตัวอักษร
             </p>
@@ -143,11 +144,14 @@ export default function RegisterPage() {
               id="confirmPassword"
               type="password"
               placeholder="••••••••"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
+              {...form.register("confirmPassword")}
               disabled={loading}
             />
+            {form.formState.errors.confirmPassword && (
+              <p className="text-sm text-destructive">
+                {form.formState.errors.confirmPassword.message}
+              </p>
+            )}
           </div>
         </CardContent>
 

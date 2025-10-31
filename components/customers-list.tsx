@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,6 +26,7 @@ import {
 import { Plus, Pencil, Trash2, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { customerSchema, type CustomerFormData } from "@/lib/validations/schemas";
 
 type Customer = {
   id: string;
@@ -42,12 +45,15 @@ export default function CustomersList({ customers }: { customers: Customer[] }) 
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
-  const [formData, setFormData] = useState({
-    name: "",
-    tax_id: "",
-    email: "",
-    phone: "",
-    address: "",
+  const form = useForm<CustomerFormData>({
+    resolver: zodResolver(customerSchema),
+    defaultValues: {
+      name: "",
+      tax_id: "",
+      email: "",
+      phone: "",
+      address: "",
+    },
   });
 
   const filteredCustomers = customers.filter((customer) =>
@@ -59,7 +65,7 @@ export default function CustomersList({ customers }: { customers: Customer[] }) 
   const handleOpenDialog = (customer?: Customer) => {
     if (customer) {
       setEditingCustomer(customer);
-      setFormData({
+      form.reset({
         name: customer.name,
         tax_id: customer.tax_id || "",
         email: customer.email || "",
@@ -68,7 +74,7 @@ export default function CustomersList({ customers }: { customers: Customer[] }) 
       });
     } else {
       setEditingCustomer(null);
-      setFormData({
+      form.reset({
         name: "",
         tax_id: "",
         email: "",
@@ -79,8 +85,7 @@ export default function CustomersList({ customers }: { customers: Customer[] }) 
     setIsDialogOpen(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (data: CustomerFormData) => {
     setLoading(true);
 
     try {
@@ -95,7 +100,7 @@ export default function CustomersList({ customers }: { customers: Customer[] }) 
         // Update existing customer
         const { error } = await supabase
           .from("customers")
-          .update(formData)
+          .update(data)
           .eq("id", editingCustomer.id);
 
         if (error) throw error;
@@ -103,12 +108,13 @@ export default function CustomersList({ customers }: { customers: Customer[] }) 
         // Create new customer
         const { error } = await supabase
           .from("customers")
-          .insert([{ ...formData, user_id: user.id }]);
+          .insert([{ ...data, user_id: user.id }]);
 
         if (error) throw error;
       }
 
       setIsDialogOpen(false);
+      form.reset();
       router.refresh();
     } catch (error) {
       console.error("Error saving customer:", error);
@@ -151,7 +157,7 @@ export default function CustomersList({ customers }: { customers: Customer[] }) 
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-md">
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={form.handleSubmit(handleSubmit)}>
               <DialogHeader>
                 <DialogTitle>
                   {editingCustomer ? "แก้ไขข้อมูลลูกค้า" : "เพิ่มลูกค้าใหม่"}
@@ -166,23 +172,29 @@ export default function CustomersList({ customers }: { customers: Customer[] }) 
                   <Label htmlFor="name">ชื่อ *</Label>
                   <Input
                     id="name"
-                    value={formData.name}
-                    onChange={(e) =>
-                      setFormData({ ...formData, name: e.target.value })
-                    }
-                    required
+                    {...form.register("name")}
+                    disabled={loading}
                   />
+                  {form.formState.errors.name && (
+                    <p className="text-sm text-destructive">
+                      {form.formState.errors.name.message}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="tax_id">เลขประจำตัวผู้เสียภาษี</Label>
                   <Input
                     id="tax_id"
-                    value={formData.tax_id}
-                    onChange={(e) =>
-                      setFormData({ ...formData, tax_id: e.target.value })
-                    }
+                    {...form.register("tax_id")}
+                    placeholder="1234567890123 หรือ 1-2345-67890-12-3"
+                    disabled={loading}
                   />
+                  {form.formState.errors.tax_id && (
+                    <p className="text-sm text-destructive">
+                      {form.formState.errors.tax_id.message}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -190,33 +202,44 @@ export default function CustomersList({ customers }: { customers: Customer[] }) 
                   <Input
                     id="email"
                     type="email"
-                    value={formData.email}
-                    onChange={(e) =>
-                      setFormData({ ...formData, email: e.target.value })
-                    }
+                    {...form.register("email")}
+                    placeholder="example@email.com"
+                    disabled={loading}
                   />
+                  {form.formState.errors.email && (
+                    <p className="text-sm text-destructive">
+                      {form.formState.errors.email.message}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="phone">เบอร์โทร</Label>
                   <Input
                     id="phone"
-                    value={formData.phone}
-                    onChange={(e) =>
-                      setFormData({ ...formData, phone: e.target.value })
-                    }
+                    {...form.register("phone")}
+                    placeholder="0812345678 หรือ 02-123-4567"
+                    disabled={loading}
                   />
+                  {form.formState.errors.phone && (
+                    <p className="text-sm text-destructive">
+                      {form.formState.errors.phone.message}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="address">ที่อยู่</Label>
                   <Input
                     id="address"
-                    value={formData.address}
-                    onChange={(e) =>
-                      setFormData({ ...formData, address: e.target.value })
-                    }
+                    {...form.register("address")}
+                    disabled={loading}
                   />
+                  {form.formState.errors.address && (
+                    <p className="text-sm text-destructive">
+                      {form.formState.errors.address.message}
+                    </p>
+                  )}
                 </div>
               </div>
 
